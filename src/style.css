@@ -1,0 +1,16 @@
+html,
+body,
+#app {
+   width: 100%;
+   min-height: 100%;
+   margin: 0;
+}
+
+body {
+   background: #f3f2f1;
+   font-family: 'Segoe UI', sans-serif;
+}
+
+* {
+   box-sizing: border-box;
+}
