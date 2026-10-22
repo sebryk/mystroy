@@ -11,17 +11,30 @@ export class TreeStore<TItem extends TreeItem> {
   private allItemsSnapshot: TItem[] | undefined;
 
   constructor(items: readonly TItem[]) {
+    this.setItems(items);
+  }
+
+  setItems(items: readonly TItem[]): void {
+    this.itemsById.clear();
+    this.childIdsByParent.clear();
+    this.allItemsSnapshot = undefined;
+
     for (const item of items) {
-      this.itemsById.set(item.id, item);
-
-      let childIds = this.childIdsByParent.get(item.parent);
-      if (childIds === undefined) {
-        childIds = new Set<TreeId>();
-        this.childIdsByParent.set(item.parent, childIds);
-      }
-
-      childIds.add(item.id);
+      this.addItem(item);
     }
+  }
+
+  addItem(item: TItem): void {
+    this.itemsById.set(item.id, item);
+
+    let childIds = this.childIdsByParent.get(item.parent);
+    if (childIds === undefined) {
+      childIds = new Set<TreeId>();
+      this.childIdsByParent.set(item.parent, childIds);
+    }
+
+    childIds.add(item.id);
+    this.allItemsSnapshot = undefined;
   }
 
   getAll(): TItem[] {
