@@ -71,4 +71,64 @@ describe('TreeStore', () => {
     expectTypeOf(store.getAll()).toEqualTypeOf<SampleItem[]>();
     expectTypeOf(store.getChildren(0)).toEqualTypeOf<SampleItem[]>();
   });
+
+  it('returns descendants breadth-first in sibling insertion order', () => {
+    const items: readonly SampleItem[] = [
+      ...ITEMS,
+      { id: 'zero-child', parent: '0', label: 'Строковый лист' },
+    ];
+    const store = new TreeStore(items);
+    const descendants = store.getAllChildren(0);
+
+    expect(descendants.map((item) => item.id)).toEqual([
+      '0', 'branch', 'zero-child', 'leaf', 42,
+    ]);
+    expect(store.getAllChildren('0').map((item) => item.id)).toEqual([
+      'zero-child',
+    ]);
+    expect(store.getAllChildren('branch').map((item) => item.id)).toEqual([
+      'leaf', 42,
+    ]);
+    expect(descendants[3]).toBe(ITEMS[0]);
+    expect(descendants[3]?.extra).toEqual({ visible: true });
+    expectTypeOf(descendants).toEqualTypeOf<SampleItem[]>();
+  });
+
+  it('returns the item-to-root path and keeps mixed ids distinct', () => {
+    const store = new TreeStore(ITEMS);
+    const parents = store.getAllParents('leaf');
+
+    expect(parents.map((item) => item.id)).toEqual(['leaf', 'branch', 0]);
+    expect(store.getAllParents(0).map((item) => item.id)).toEqual([0]);
+    expect(store.getAllParents('0').map((item) => item.id)).toEqual([
+      '0', 0,
+    ]);
+    expect(parents[0]).toBe(ITEMS[0]);
+    expect(parents[1]).toBe(ITEMS[3]);
+    expect(parents[2]).toBe(ITEMS[1]);
+    expect(parents[0]?.extra).toEqual({ visible: true });
+    expectTypeOf(parents).toEqualTypeOf<SampleItem[]>();
+  });
+
+  it('returns empty traversal results for empty stores, leaves and missing ids', () => {
+    const emptyStore = new TreeStore<SampleItem>([]);
+    const store = new TreeStore(ITEMS);
+
+    expect(emptyStore.getAllChildren(0)).toEqual([]);
+    expect(emptyStore.getAllParents(0)).toEqual([]);
+    expect(store.getAllChildren('leaf')).toEqual([]);
+    expect(store.getAllChildren('missing')).toEqual([]);
+    expect(store.getAllParents('missing')).toEqual([]);
+  });
+
+  it('traverses a 20,000-item chain without recursion', () => {
+    const chain: TreeItem[] = Array.from({ length: 20_000 }, (_, id) => ({
+      id,
+      parent: id === 0 ? null : id - 1,
+    }));
+    const store = new TreeStore(chain);
+
+    expect(store.getAllChildren(0)).toEqual(chain.slice(1));
+    expect(store.getAllParents(19_999)).toEqual([...chain].reverse());
+  });
 });
