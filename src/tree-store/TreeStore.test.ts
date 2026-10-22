@@ -313,4 +313,279 @@ describe('TreeStore', () => {
       SampleItem[]
     >();
   });
+
+  it('removes a leaf from cached items without disturbing siblings', () => {
+    const store = new TreeStore(ITEMS);
+    const before = store.getAll();
+
+    store.removeItem('leaf');
+
+    const after = store.getAll();
+    expect(after.map((item) => item.id)).toEqual([0, '0', 'branch', 42]);
+    expect(after).not.toBe(before);
+    expect(store.getAll()).toBe(after);
+    expect(store.getItem('leaf')).toBeUndefined();
+    expect(store.getChildren('leaf')).toEqual([]);
+    expect(store.getAllChildren('leaf')).toEqual([]);
+    expect(store.getAllParents('leaf')).toEqual([]);
+    expect(store.getChildren('branch')).toEqual([ITEMS[4]]);
+    expect(store.getAllChildren(0).map((item) => item.id)).toEqual([
+      '0', 'branch', 42,
+    ]);
+    expect(store.getAllParents(42)).toEqual([
+      ITEMS[4], ITEMS[3], ITEMS[1],
+    ]);
+    expect(after[0]).toBe(ITEMS[1]);
+    expect(after[1]).toBe(ITEMS[2]);
+    expect(after[2]).toBe(ITEMS[3]);
+    expect(after[3]).toBe(ITEMS[4]);
+  });
+
+  it('removes a whole branch and clears relations for reused ids', () => {
+    const store = new TreeStore(ITEMS);
+    const before = store.getAll();
+
+    store.removeItem('branch');
+
+    const after = store.getAll();
+    expect(after.map((item) => item.id)).toEqual([0, '0']);
+    expect(after).not.toBe(before);
+    expect(store.getAll()).toBe(after);
+    expect(store.getChildren(0).map((item) => item.id)).toEqual(['0']);
+    for (const id of ['branch', 'leaf', 42]) {
+      expect(store.getItem(id)).toBeUndefined();
+      expect(store.getChildren(id)).toEqual([]);
+      expect(store.getAllChildren(id)).toEqual([]);
+      expect(store.getAllParents(id)).toEqual([]);
+    }
+
+    const replacement: SampleItem = {
+      id: 'branch',
+      parent: 0,
+      label: 'Replacement branch',
+    };
+    store.addItem(replacement);
+
+    expect(store.getChildren('branch')).toEqual([]);
+    expect(store.getAllChildren('branch')).toEqual([]);
+    expect(store.getChildren(0).map((item) => item.id)).toEqual([
+      '0', 'branch',
+    ]);
+  });
+
+  it('removes a numeric root while preserving a separate string root', () => {
+    const items: SampleItem[] = [
+      { id: 0, parent: null, label: 'Numeric root' },
+      { id: '0', parent: null, label: 'String root' },
+      { id: 'numeric-child', parent: 0, label: 'Numeric child' },
+      { id: 'string-child', parent: '0', label: 'String child' },
+    ];
+    const store = new TreeStore(items);
+
+    store.getAll();
+    store.removeItem(0);
+
+    expect(store.getAll().map((item) => item.id)).toEqual([
+      '0', 'string-child',
+    ]);
+    expect(store.getItem(0)).toBeUndefined();
+    expect(store.getItem('numeric-child')).toBeUndefined();
+    for (const id of [0, 'numeric-child']) {
+      expect(store.getChildren(id)).toEqual([]);
+      expect(store.getAllChildren(id)).toEqual([]);
+      expect(store.getAllParents(id)).toEqual([]);
+    }
+    expect(store.getChildren('0').map((item) => item.id)).toEqual([
+      'string-child',
+    ]);
+    expect(store.getAllParents('string-child').map((item) => item.id)).toEqual([
+      'string-child', '0',
+    ]);
+  });
+
+  it('removes a 20,000-item chain without recursion', () => {
+    const chain: TreeItem[] = Array.from({ length: 20_000 }, (_, id) => ({
+      id,
+      parent: id === 0 ? null : id - 1,
+    }));
+    const survivor: TreeItem = { id: 'survivor', parent: null };
+    const store = new TreeStore([...chain, survivor]);
+
+    store.getAll();
+    store.removeItem(0);
+
+    expect(store.getAll()).toEqual([survivor]);
+    expect(store.getItem(0)).toBeUndefined();
+    expect(store.getItem(19_999)).toBeUndefined();
+    for (const id of [0, 19_999]) {
+      expect(store.getChildren(id)).toEqual([]);
+      expect(store.getAllChildren(id)).toEqual([]);
+      expect(store.getAllParents(id)).toEqual([]);
+    }
+    expect(store.getItem('survivor')).toBe(survivor);
+  });
+
+  it('ignores missing mutation ids without changing cached state', () => {
+    const store = new TreeStore(ITEMS);
+    const before = store.getAll();
+
+    store.removeItem('missing');
+    store.updateItem({ id: 'missing', parent: 0, label: 'Missing' });
+
+    expect(store.getAll()).toBe(before);
+    expect(store.getAll().map((item) => item.id)).toEqual([
+      'leaf', 0, '0', 'branch', 42,
+    ]);
+    expect(store.getItem('missing')).toBeUndefined();
+    expect(store.getChildren(0).map((item) => item.id)).toEqual([
+      '0', 'branch',
+    ]);
+    expect(store.getAllParents('leaf').map((item) => item.id)).toEqual([
+      'leaf', 'branch', 0,
+    ]);
+  });
+
+  it('replaces an item object without reordering its siblings', () => {
+    const store = new TreeStore(ITEMS);
+    const before = store.getAll();
+    const replacement: SampleItem = {
+      id: 'leaf',
+      parent: 'branch',
+      label: 'Replacement leaf',
+    };
+
+    store.updateItem(replacement);
+
+    const after = store.getAll();
+    expect(store.getItem('leaf')).toBe(replacement);
+    expect(store.getItem('leaf')?.extra).toBeUndefined();
+    expect(ITEMS[0]?.extra).toEqual({ visible: true });
+    expect(after.map((item) => item.id)).toEqual([
+      'leaf', 0, '0', 'branch', 42,
+    ]);
+    expect(after[0]).toBe(replacement);
+    expect(after).not.toBe(before);
+    expect(store.getAll()).toBe(after);
+    expect(store.getChildren('branch')).toEqual([replacement, ITEMS[4]]);
+    const descendants = store.getAllChildren(0);
+    expect(descendants.map((item) => item.id)).toEqual([
+      '0', 'branch', 'leaf', 42,
+    ]);
+    expect(descendants[2]).toBe(replacement);
+    const parents = store.getAllParents('leaf');
+    expect(parents.map((item) => item.id)).toEqual(['leaf', 'branch', 0]);
+    expect(parents[0]).toBe(replacement);
+  });
+
+  it(
+    'moves a branch after destination siblings while preserving its subtree',
+    () => {
+      const existingChild: SampleItem = {
+        id: 'existing-child',
+        parent: '0',
+        label: 'Existing child',
+      };
+      const store = new TreeStore([...ITEMS, existingChild]);
+      const before = store.getAll();
+      const replacement: SampleItem = {
+        id: 'branch',
+        parent: '0',
+        label: 'Moved branch',
+      };
+
+      store.updateItem(replacement);
+
+      const after = store.getAll();
+      expect(after.map((item) => item.id)).toEqual([
+        'leaf', 0, '0', 'branch', 42, 'existing-child',
+      ]);
+      expect(after[3]).toBe(replacement);
+      expect(after).not.toBe(before);
+      expect(store.getAll()).toBe(after);
+      expect(store.getChildren(0).map((item) => item.id)).toEqual(['0']);
+      expect(store.getChildren('0').map((item) => item.id)).toEqual([
+        'existing-child', 'branch',
+      ]);
+      expect(store.getChildren('branch')).toEqual([ITEMS[0], ITEMS[4]]);
+      const descendants = store.getAllChildren(0);
+      expect(descendants.map((item) => item.id)).toEqual([
+        '0', 'existing-child', 'branch', 'leaf', 42,
+      ]);
+      expect(descendants[2]).toBe(replacement);
+      const parents = store.getAllParents('leaf');
+      expect(parents.map((item) => item.id)).toEqual([
+        'leaf', 'branch', '0', 0,
+      ]);
+      expect(parents[1]).toBe(replacement);
+
+      store.removeItem('branch');
+
+      expect(store.getChildren('0').map((item) => item.id)).toEqual([
+        'existing-child',
+      ]);
+      expect(store.getAll().map((item) => item.id)).toEqual([
+        0, '0', 'existing-child',
+      ]);
+    },
+  );
+
+  it('moves an item through root numeric and string parents', () => {
+    const store = new TreeStore(ITEMS);
+    const branchAtRoot: SampleItem = {
+      id: 'branch',
+      parent: null,
+      label: 'Root branch',
+    };
+    const branchAtStringZero: SampleItem = {
+      id: 'branch',
+      parent: '0',
+      label: 'String-zero branch',
+    };
+    const branchAtNumericZero: SampleItem = {
+      id: 'branch',
+      parent: 0,
+      label: 'Numeric-zero branch',
+    };
+
+    const beforeRoot = store.getAll();
+    store.updateItem(branchAtRoot);
+    const afterRoot = store.getAll();
+    expect(afterRoot).not.toBe(beforeRoot);
+    expect(afterRoot.map((item) => item.id)).toEqual([
+      'leaf', 0, '0', 'branch', 42,
+    ]);
+    expect(store.getChildren(0).map((item) => item.id)).toEqual(['0']);
+    expect(store.getAllParents('leaf')).toEqual([ITEMS[0], branchAtRoot]);
+    expect(store.getChildren('branch')).toEqual([ITEMS[0], ITEMS[4]]);
+
+    const beforeStringZero = store.getAll();
+    store.updateItem(branchAtStringZero);
+    const afterStringZero = store.getAll();
+    expect(afterStringZero).not.toBe(beforeStringZero);
+    expect(afterStringZero.map((item) => item.id)).toEqual([
+      'leaf', 0, '0', 'branch', 42,
+    ]);
+    expect(store.getChildren('0').map((item) => item.id)).toEqual(['branch']);
+    expect(store.getChildren(0).map((item) => item.id)).toEqual(['0']);
+    expect(store.getAllParents('leaf')).toEqual([
+      ITEMS[0], branchAtStringZero, ITEMS[2], ITEMS[1],
+    ]);
+    expect(store.getChildren('branch')).toEqual([ITEMS[0], ITEMS[4]]);
+
+    const beforeNumericZero = store.getAll();
+    store.updateItem(branchAtNumericZero);
+    const afterNumericZero = store.getAll();
+    expect(afterNumericZero).not.toBe(beforeNumericZero);
+    expect(afterNumericZero.map((item) => item.id)).toEqual([
+      'leaf', 0, '0', 'branch', 42,
+    ]);
+    expect(store.getChildren('0')).toEqual([]);
+    expect(store.getChildren(0).map((item) => item.id)).toEqual([
+      '0', 'branch',
+    ]);
+    expect(store.getAllParents('leaf')).toEqual([
+      ITEMS[0], branchAtNumericZero, ITEMS[1],
+    ]);
+    expect(store.getChildren('branch')).toEqual([ITEMS[0], ITEMS[4]]);
+  });
 });

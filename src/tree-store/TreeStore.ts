@@ -37,6 +37,48 @@ export class TreeStore<TItem extends TreeItem> {
     this.allItemsSnapshot = undefined;
   }
 
+  removeItem(id: TreeId): void {
+    const item = this.itemsById.get(id);
+    if (item === undefined) {
+      return;
+    }
+
+    const parentChildIds = this.childIdsByParent.get(item.parent);
+    if (parentChildIds !== undefined) {
+      parentChildIds.delete(id);
+      if (parentChildIds.size === 0) {
+        this.childIdsByParent.delete(item.parent);
+      }
+    }
+
+    const removedItems = [item, ...this.getAllChildren(id)];
+    for (const removedItem of removedItems) {
+      this.itemsById.delete(removedItem.id);
+      this.childIdsByParent.delete(removedItem.id);
+    }
+
+    this.allItemsSnapshot = undefined;
+  }
+
+  updateItem(updatedItem: TItem): void {
+    const currentItem = this.itemsById.get(updatedItem.id);
+    if (currentItem === undefined) {
+      return;
+    }
+
+    if (currentItem.parent !== updatedItem.parent) {
+      const oldParentChildIds = this.childIdsByParent.get(currentItem.parent);
+      if (oldParentChildIds !== undefined) {
+        oldParentChildIds.delete(updatedItem.id);
+        if (oldParentChildIds.size === 0) {
+          this.childIdsByParent.delete(currentItem.parent);
+        }
+      }
+    }
+
+    this.addItem(updatedItem);
+  }
+
   getAll(): TItem[] {
     if (this.allItemsSnapshot === undefined) {
       this.allItemsSnapshot = [...this.itemsById.values()];
