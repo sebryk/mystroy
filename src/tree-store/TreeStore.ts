@@ -43,13 +43,7 @@ export class TreeStore<TItem extends TreeItem> {
          return;
       }
 
-      const parentChildIds = this.childIdsByParent.get(item.parent);
-      if (parentChildIds !== undefined) {
-         parentChildIds.delete(id);
-         if (parentChildIds.size === 0) {
-            this.childIdsByParent.delete(item.parent);
-         }
-      }
+      this.removeChildFromParent(item.parent, id);
 
       const removedItems = [item, ...this.getAllChildren(id)];
       for (const removedItem of removedItems) {
@@ -67,13 +61,7 @@ export class TreeStore<TItem extends TreeItem> {
       }
 
       if (currentItem.parent !== updatedItem.parent) {
-         const oldParentChildIds = this.childIdsByParent.get(currentItem.parent);
-         if (oldParentChildIds !== undefined) {
-            oldParentChildIds.delete(updatedItem.id);
-            if (oldParentChildIds.size === 0) {
-               this.childIdsByParent.delete(currentItem.parent);
-            }
-         }
+         this.removeChildFromParent(currentItem.parent, updatedItem.id);
       }
 
       this.addItem(updatedItem);
@@ -92,19 +80,8 @@ export class TreeStore<TItem extends TreeItem> {
    }
 
    getChildren(id: TreeId): TItem[] {
-      const childIds = this.childIdsByParent.get(id);
-      if (childIds === undefined) {
-         return [];
-      }
-
       const children: TItem[] = [];
-      for (const childId of childIds) {
-         const child = this.itemsById.get(childId);
-         if (child !== undefined) {
-            children.push(child);
-         }
-      }
-
+      this.appendChildren(id, children);
       return children;
    }
 
@@ -114,35 +91,10 @@ export class TreeStore<TItem extends TreeItem> {
       }
 
       const descendants: TItem[] = [];
-      const childIds = this.childIdsByParent.get(id);
-      if (childIds === undefined) {
-         return descendants;
-      }
-
-      for (const childId of childIds) {
-         const child = this.itemsById.get(childId);
-         if (child !== undefined) {
-            descendants.push(child);
-         }
-      }
+      this.appendChildren(id, descendants);
 
       for (let index = 0; index < descendants.length; index += 1) {
-         const parent = descendants[index];
-         if (parent === undefined) {
-            continue;
-         }
-
-         const nestedChildIds = this.childIdsByParent.get(parent.id);
-         if (nestedChildIds === undefined) {
-            continue;
-         }
-
-         for (const childId of nestedChildIds) {
-            const child = this.itemsById.get(childId);
-            if (child !== undefined) {
-               descendants.push(child);
-            }
-         }
+         this.appendChildren(descendants[index].id, descendants);
       }
 
       return descendants;
@@ -162,5 +114,31 @@ export class TreeStore<TItem extends TreeItem> {
       }
 
       return parents;
+   }
+
+   private removeChildFromParent(parent: TreeId | null, id: TreeId): void {
+      const childIds = this.childIdsByParent.get(parent);
+      if (childIds === undefined) {
+         return;
+      }
+
+      childIds.delete(id);
+      if (childIds.size === 0) {
+         this.childIdsByParent.delete(parent);
+      }
+   }
+
+   private appendChildren(id: TreeId, children: TItem[]): void {
+      const childIds = this.childIdsByParent.get(id);
+      if (childIds === undefined) {
+         return;
+      }
+
+      for (const childId of childIds) {
+         const child = this.itemsById.get(childId);
+         if (child !== undefined) {
+            children.push(child);
+         }
+      }
    }
 }
