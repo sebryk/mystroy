@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 
-import { CellStyleModule, ClientSideRowModelModule, LocaleModule, RenderApiModule } from 'ag-grid-community';
+import { CellStyleModule, ClientSideRowModelModule, LocaleModule, RenderApiModule, RowApiModule } from 'ag-grid-community';
 import { TreeDataModule } from 'ag-grid-enterprise';
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 import type { TreeDataItem } from '../composables/useTreeItems';
+import CategoryCellRenderer from './CategoryCellRenderer.vue';
 import TreeTable from './TreeTable.vue';
 
 type GridProps = Record<string, unknown>;
@@ -23,7 +24,7 @@ const AgGridStub = defineComponent({
 
 const mountTable = (rows: readonly TreeDataItem[], loading: boolean) =>
    mount(TreeTable, {
-      props: { rows, loading },
+      props: { rows, loading, addChild: vi.fn(), removeItem: vi.fn() },
       global: { stubs: { AgGridVue: AgGridStub } },
    });
 
@@ -125,6 +126,7 @@ describe('TreeTable', () => {
          CellStyleModule,
          LocaleModule,
          RenderApiModule,
+         RowApiModule,
          TreeDataModule,
       ]);
       expect(gridProp('treeData')).toBe(true);
@@ -134,9 +136,75 @@ describe('TreeTable', () => {
       expect(getColumn('category')).toMatchObject({
          showRowGroup: true,
          cellRenderer: 'agGroupCellRenderer',
-         cellRendererParams: { suppressCount: true, suppressPadding: true },
+         suppressKeyboardEvent: expect.any(Function),
+         cellRendererParams: {
+            suppressCount: true,
+            suppressPadding: true,
+            innerRenderer: CategoryCellRenderer,
+         },
       });
+      expect(gridProp('onRowDataUpdated')).toBeTypeOf('function');
       expect(gridProp('localeText')).toEqual({ loadingOoo: 'Загрузка...' });
+   });
+
+   it('passes row actions to the category renderer', () => {
+      const addChild = vi.fn();
+      const removeItem = vi.fn();
+      mount(TreeTable, {
+         props: {
+            rows: [{ id: 'parent', parent: null, label: 'Parent' }],
+            loading: false,
+            addChild,
+            removeItem,
+         },
+         global: { stubs: { AgGridVue: AgGridStub } },
+      });
+      const params = getColumn('category').cellRendererParams;
+
+      expect(isRecord(params)).toBe(true);
+      if (!isRecord(params)) {
+         throw new Error('Expected category cell renderer parameters');
+      }
+      const innerRendererParams = params.innerRendererParams;
+
+      expect(innerRendererParams).toMatchObject({ onRemove: removeItem });
+
+      invoke((innerRendererParams as GridProps).onAddChild, 'parent');
+      expect(addChild).toHaveBeenCalledWith('parent');
+   });
+
+   it('skips disabled category actions when moving focus with Tab', () => {
+      mountTable([], false);
+      const cell = document.createElement('div');
+      cell.className = 'ag-cell category-cell';
+      cell.tabIndex = 0;
+      const disabledAdd = document.createElement('button');
+      disabledAdd.className = 'category-action';
+      disabledAdd.disabled = true;
+      const remove = document.createElement('button');
+      remove.className = 'category-action';
+      cell.append(disabledAdd, remove);
+      document.body.append(cell);
+
+      try {
+         cell.focus();
+         const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+         cell.dispatchEvent(tabEvent);
+
+         expect(invoke(getColumn('category').suppressKeyboardEvent, { event: tabEvent })).toBe(true);
+         expect(document.activeElement).toBe(remove);
+         expect(tabEvent.defaultPrevented).toBe(true);
+
+         remove.disabled = true;
+         cell.focus();
+         const disabledEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+         cell.dispatchEvent(disabledEvent);
+
+         expect(invoke(getColumn('category').suppressKeyboardEvent, { event: disabledEvent })).toBe(false);
+         expect(disabledEvent.defaultPrevented).toBe(false);
+      } finally {
+         cell.remove();
+      }
    });
 
    it('derives category text and group weights from the node and depth', () => {
@@ -185,7 +253,7 @@ describe('TreeTable', () => {
       });
    });
 
-   it('refreshes only row numbers after the displayed model changes', () => {
+   it('refreshes row numbers and category display columns after the displayed model changes', () => {
       mountTable([], false);
       const refreshCells = vi.fn();
 
@@ -193,7 +261,7 @@ describe('TreeTable', () => {
 
       expect(refreshCells).toHaveBeenCalledTimes(1);
       expect(refreshCells).toHaveBeenCalledWith({
-         columns: ['rowNumber'],
+         columns: ['rowNumber', 'category', 'label'],
          force: true,
       });
    });

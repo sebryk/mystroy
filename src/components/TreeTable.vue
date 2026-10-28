@@ -5,23 +5,30 @@ import {
    ClientSideRowModelModule,
    LocaleModule,
    RenderApiModule,
+   RowApiModule,
    themeQuartz,
    type ColDef,
    type ModelUpdatedEvent,
+   type RowDataUpdatedEvent,
+   type SuppressKeyboardEventParams,
 } from 'ag-grid-community';
 import { TreeDataModule } from 'ag-grid-enterprise';
 import { AgGridVue } from 'ag-grid-vue3';
 import type { TreeDataItem } from '../composables/useTreeItems';
 import type { TreeId } from '../tree-store/TreeStore';
+import CategoryCellRenderer from './CategoryCellRenderer.vue';
 
 type TreeTableProps = {
    rows: readonly TreeDataItem[];
    loading: boolean;
+   addChild: (parentId: TreeId) => void;
+   removeItem: (id: TreeId) => void;
 };
 
 type GridRow = TreeDataItem & { parentRowId: string | null };
 
 const props = defineProps<TreeTableProps>();
+const pendingExpandIds = new Set<string>();
 
 const toGridId = (id: TreeId): string => `${typeof id}:${id}`;
 
@@ -32,7 +39,7 @@ const rowData = computed<GridRow[]>(() =>
    })),
 );
 
-const modules = [ClientSideRowModelModule, CellStyleModule, LocaleModule, RenderApiModule, TreeDataModule];
+const modules = [ClientSideRowModelModule, CellStyleModule, LocaleModule, RenderApiModule, RowApiModule, TreeDataModule];
 
 const defaultColDef: ColDef<GridRow> = {
    sortable: false,
@@ -40,6 +47,39 @@ const defaultColDef: ColDef<GridRow> = {
    resizable: false,
    suppressMovable: true,
    suppressHeaderMenuButton: true,
+};
+
+const handleAddChild = (parentId: TreeId): void => {
+   pendingExpandIds.add(toGridId(parentId));
+   props.addChild(parentId);
+};
+
+const handleCategoryKeyboardEvent = (params: SuppressKeyboardEventParams<GridRow>): boolean => {
+   const { event } = params;
+   if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+   }
+
+   const target = event.target;
+   const categoryCell = target instanceof Element ? target.closest<HTMLElement>('.ag-cell.category-cell') : null;
+   if (categoryCell === null) {
+      return false;
+   }
+
+   const buttons = Array.from(categoryCell.querySelectorAll<HTMLButtonElement>('.category-action:not(:disabled)'));
+   if (buttons.length === 0) {
+      return false;
+   }
+
+   const focusedIndex = buttons.findIndex((button) => button === document.activeElement);
+   const nextIndex = focusedIndex < 0 ? (event.shiftKey ? buttons.length - 1 : 0) : focusedIndex + (event.shiftKey ? -1 : 1);
+   if (nextIndex < 0 || nextIndex >= buttons.length) {
+      return false;
+   }
+
+   event.preventDefault();
+   buttons[nextIndex].focus();
+   return true;
 };
 
 const columnDefs: ColDef<GridRow>[] = [
@@ -60,7 +100,16 @@ const columnDefs: ColDef<GridRow>[] = [
       minWidth: 280,
       showRowGroup: true,
       cellRenderer: 'agGroupCellRenderer',
-      cellRendererParams: { suppressCount: true, suppressPadding: true },
+      suppressKeyboardEvent: handleCategoryKeyboardEvent,
+      cellRendererParams: {
+         suppressCount: true,
+         suppressPadding: true,
+         innerRenderer: CategoryCellRenderer,
+         innerRendererParams: {
+            onAddChild: handleAddChild,
+            onRemove: props.removeItem,
+         },
+      },
       valueGetter: ({ node }) => (node?.group ? 'Группа' : 'Элемент'),
       cellClass: 'category-cell',
       headerClass: 'category-header',
@@ -103,7 +152,14 @@ const theme = themeQuartz.withParams({
 });
 
 const refreshRowNumbers = (event: ModelUpdatedEvent<GridRow>): void => {
-   event.api.refreshCells({ columns: ['rowNumber'], force: true });
+   event.api.refreshCells({ columns: ['rowNumber', 'category', 'label'], force: true });
+};
+
+const expandAddedParents = (event: RowDataUpdatedEvent<GridRow>): void => {
+   for (const parentId of pendingExpandIds) {
+      event.api.getRowNode(parentId)?.setExpanded(true);
+   }
+   pendingExpandIds.clear();
 };
 </script>
 
@@ -128,6 +184,7 @@ const refreshRowNumbers = (event: ModelUpdatedEvent<GridRow>): void => {
       :suppress-context-menu="true"
       :theme="theme"
       @model-updated="refreshRowNumbers"
+      @row-data-updated="expandAddedParents"
    />
 </template>
 
@@ -156,6 +213,10 @@ const refreshRowNumbers = (event: ModelUpdatedEvent<GridRow>): void => {
 
 :deep(.ag-header-cell.category-header) {
    padding-inline-start: 14px;
+}
+
+:deep(.ag-cell.category-cell .category-cell-renderer) {
+   width: 100%;
 }
 
 :deep(.ag-cell.label-cell),

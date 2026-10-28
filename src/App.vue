@@ -2,8 +2,9 @@
 import { onMounted } from 'vue';
 import TreeTable from './components/TreeTable.vue';
 import { useTreeItems } from './composables/useTreeItems';
+import HistoryButton from './components/HistoryButton.vue';
 
-const { rows, loading, error, load } = useTreeItems();
+const { rows, loading, error, load, addChild, removeItem } = useTreeItems();
 
 onMounted(() => {
    void load();
@@ -12,8 +13,10 @@ onMounted(() => {
 
 <template>
    <main class="page-shell">
+      <HistoryButton><</HistoryButton>
+      <HistoryButton>></HistoryButton>
       <p v-if="error" class="load-error" role="alert">{{ error }}</p>
-      <TreeTable v-else :rows="rows" :loading="loading" />
+      <TreeTable v-else :rows="rows" :loading="loading" :add-child="addChild" :remove-item="removeItem" />
    </main>
 </template>
 

@@ -1,5 +1,5 @@
 import { ref, shallowRef } from 'vue';
-import { TreeStore, type TreeItem } from '../tree-store/TreeStore';
+import { TreeStore, type TreeId, type TreeItem } from '../tree-store/TreeStore';
 
 export type TreeDataItem = TreeItem & { label: string };
 
@@ -8,6 +8,24 @@ export const useTreeItems = () => {
    const rows = shallowRef(store.getAll());
    const loading = ref(true);
    const error = ref<string | null>(null);
+
+   const addChild = (parentId: TreeId): void => {
+      if (store.getItem(parentId) === undefined) {
+         return;
+      }
+
+      store.addItem({ id: crypto.randomUUID(), parent: parentId, label: 'Новый элемент' });
+      rows.value = store.getAll();
+   };
+
+   const removeItem = (id: TreeId): void => {
+      if (store.getItem(id) === undefined) {
+         return;
+      }
+
+      store.removeItem(id);
+      rows.value = store.getAll();
+   };
 
    const load = async () => {
       loading.value = true;
@@ -33,5 +51,5 @@ export const useTreeItems = () => {
       }
    };
 
-   return { store, rows, loading, error, load };
+   return { store, rows, loading, error, load, addChild, removeItem };
 };
