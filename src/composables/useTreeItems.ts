@@ -1,10 +1,11 @@
 import { ref, shallowRef } from 'vue';
-import { TreeStore, type TreeId, type TreeItem } from '../tree-store/TreeStore';
+import { History } from '../tree-store/History';
+import { type TreeId, type TreeItem } from '../tree-store/TreeStore';
 
 export type TreeDataItem = TreeItem & { label: string };
 
 export const useTreeItems = () => {
-   const store = new TreeStore<TreeDataItem>([]);
+   const store = new History<TreeDataItem>([]);
    const rows = shallowRef(store.getAll());
    const loading = ref(true);
    const error = ref<string | null>(null);
@@ -24,6 +25,16 @@ export const useTreeItems = () => {
       }
 
       store.removeItem(id);
+      rows.value = store.getAll();
+   };
+
+   const undo = (): void => {
+      store.undo();
+      rows.value = store.getAll();
+   };
+
+   const redo = (): void => {
+      store.redo();
       rows.value = store.getAll();
    };
 
@@ -51,5 +62,5 @@ export const useTreeItems = () => {
       }
    };
 
-   return { store, rows, loading, error, load, addChild, removeItem };
+   return { store, rows, loading, error, load, addChild, removeItem, undo, redo };
 };
